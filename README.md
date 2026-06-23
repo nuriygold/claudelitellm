@@ -92,9 +92,9 @@ The launcher creates a temporary clean HOME for Claude Code so it does not reuse
 
 Before launch it overlays config directories in this order:
 
-- this repo's `.claude` and `.codex` if present
 - your real `~/.claude` and `~/.codex`
-- any `.claude` or `.codex` directories found while walking from `/` down to the current working directory
+- this repo's `.claude` and `.codex` if present
+- any `.claude` or `.codex` directories found while walking from `/` down to the current working directory, including this repo's `.claude` when launched from the repo
 
 Later layers win, so project-local config can override home-level defaults.
 
