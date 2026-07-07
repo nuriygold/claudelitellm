@@ -120,10 +120,111 @@ HOME_MCP_CONFIG_PATH="$HOME_CLAUDE_CONFIG_DIR/claudelitellmmcps.json"
 REPO_MCP_CONFIG_PATH="$REPO_CLAUDE_CONFIG_DIR/claudelitellmmcps.json"
 LOCAL_LITELLM_CONFIG_PATH="$REPO_ROOT/config/litellm.config.yaml"
 LOCAL_LITELLM_ENV_PATH="$REPO_ROOT/config/litellm.env"
+if [[ -n "${REAL_LITELLM_URL:-}" ]]; then
+  REAL_LITELLM_URL_EXPLICIT=1
+fi
 REAL_LITELLM_URL="${REAL_LITELLM_URL:-http://127.0.0.1:4000}"
 FILTER_PORT="${FILTER_PORT:-4001}"
 FILTER_URL="http://127.0.0.1:${FILTER_PORT}"
-MODEL="${ANTHROPIC_MODEL:-gpt-5.4}"
+
+# --- Per-device personalization ---------------------------------------------
+# Each machine that runs this launcher gets its own profile in devices/<name>.env.
+# Profiles set DEFAULTS only; anything exported explicitly in the shell wins.
+DEVICES_DIR="${CLAUDELITELLM_DEVICES_DIR:-$REPO_ROOT/devices}"
+CLAUDELITELLM_DEVICE_STATE="${CLAUDELITELLM_DEVICE_STATE:-$HOME_CLAUDE_CONFIG_DIR/claudelitellm-device}"
+
+device_from_hostname() {
+  local host
+  host="$( (scutil --get ComputerName 2>/dev/null || hostname 2>/dev/null || true) \
+    | tr '[:upper:]' '[:lower:]' )"
+  case "$host" in
+    *claw*|*mac-mini*|*macmini*) echo "claw" ;;
+    *rudolph*|*macbook-air*|*macbookair*) echo "rudolph" ;;
+    *debby*|*oldmac*|*debian*) echo "debby" ;;
+    *) echo "" ;;
+  esac
+}
+
+prompt_for_device() {
+  local names=() name f
+  for f in "$DEVICES_DIR"/*.env; do
+    [[ -f "$f" ]] || continue
+    name="$(basename "$f" .env)"
+    names+=("$name")
+  done
+  [[ ${#names[@]} -gt 0 ]] || { printf ''; return 0; }
+
+  local i
+  {
+    echo "Which device is this?"
+    for i in "${!names[@]}"; do
+      echo "  $((i + 1))) ${names[$i]}"
+    done
+  } >&2
+
+  local reply=""
+  read -r -p "Device [1-${#names[@]} or name]: " reply </dev/tty || true
+  reply="$(printf '%s' "$reply" | tr -d '[:space:]')"
+  [[ -n "$reply" ]] || { printf ''; return 0; }
+
+  if [[ "$reply" =~ ^[0-9]+$ ]]; then
+    local idx=$((reply - 1))
+    if [[ $idx -ge 0 && $idx -lt ${#names[@]} ]]; then
+      printf '%s' "${names[$idx]}"
+      return 0
+    fi
+  fi
+  printf '%s' "$reply"
+}
+
+resolve_device() {
+  local device=""
+
+  if [[ -n "${CLAUDELITELLM_DEVICE:-}" ]]; then
+    device="$CLAUDELITELLM_DEVICE"
+  elif [[ -f "$CLAUDELITELLM_DEVICE_STATE" ]]; then
+    device="$(head -n1 "$CLAUDELITELLM_DEVICE_STATE" 2>/dev/null | tr -d '[:space:]')"
+  fi
+
+  if [[ -z "$device" ]]; then
+    device="$(device_from_hostname)"
+  fi
+
+  if { [[ -z "$device" ]] || [[ ! -f "$DEVICES_DIR/$device.env" ]]; } && [[ -t 0 && -t 2 ]]; then
+    device="$(prompt_for_device)"
+  fi
+
+  if [[ -z "$device" || ! -f "$DEVICES_DIR/$device.env" ]]; then
+    device="claw"
+  fi
+
+  printf '%s' "$device"
+}
+
+ACTIVE_DEVICE="$(resolve_device)"
+DEVICE_PROFILE_PATH="$DEVICES_DIR/$ACTIVE_DEVICE.env"
+if [[ -f "$DEVICE_PROFILE_PATH" ]]; then
+  # shellcheck disable=SC1090
+  source "$DEVICE_PROFILE_PATH"
+  if [[ "${CLAUDELITELLM_DEVICE_PERSIST:-1}" != "0" ]]; then
+    mkdir -p "$(dirname "$CLAUDELITELLM_DEVICE_STATE")" 2>/dev/null || true
+    printf '%s\n' "$ACTIVE_DEVICE" >"$CLAUDELITELLM_DEVICE_STATE" 2>/dev/null || true
+  fi
+fi
+DEVICE_LABEL="${CLAUDELITELLM_DEVICE_LABEL:-$ACTIVE_DEVICE}"
+
+# Model + reasoning defaults: explicit env wins, then device profile, then built-in.
+MODEL="${ANTHROPIC_MODEL:-${CLAUDELITELLM_MODEL:-claude-fable-5}}"
+SMALL_FAST_MODEL="${ANTHROPIC_SMALL_FAST_MODEL:-${CLAUDELITELLM_SMALL_FAST_MODEL:-$MODEL}}"
+REASONING_EFFORT="${ANTHROPIC_REASONING_EFFORT:-${CLAUDELITELLM_REASONING_EFFORT:-medium}}"
+AUTOCOMPACT_ENABLED="${CLAUDELITELLM_AUTOCOMPACT:-true}"
+
+# Allow a device profile to set a per-device LiteLLM endpoint default.
+# Explicit REAL_LITELLM_URL from the shell still wins over the device value.
+if [[ -n "${CLAUDELITELLM_REAL_LITELLM_URL:-}" && -z "${REAL_LITELLM_URL_EXPLICIT:-}" ]]; then
+  REAL_LITELLM_URL="$CLAUDELITELLM_REAL_LITELLM_URL"
+fi
+
 LOCAL_LITELLM_LOG_PATH="${LOCAL_LITELLM_LOG_PATH:-${TMPDIR:-/tmp}/litellm-local.log}"
 
 FILTER_SCRIPT_PATH="${FILTER_SCRIPT_PATH:-${TMPDIR:-/tmp}/litellm_strip_output_config_proxy.py}"
@@ -198,7 +299,9 @@ materialize_mcp_config() {
 echo "=== Claude Code → filter proxy → existing LiteLLM → Azure ${MODEL} ==="
 echo "Real LiteLLM: $REAL_LITELLM_URL"
 echo "Filter URL:   $FILTER_URL"
+echo "Device:       $DEVICE_LABEL"
 echo "Model:        $MODEL"
+echo "Reasoning:    $REASONING_EFFORT"
 echo
 
 echo "Checking existing LiteLLM..."
@@ -516,18 +619,29 @@ if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
   overlay_tree "$CLAUDE_CONFIG_DIR" "$MERGED_CLAUDE_CONFIG_DIR"
 fi
 
-if [[ -f "$MERGED_CLAUDE_CONFIG_DIR/settings.json" ]]; then
-  python3 - <<'PY' "$MERGED_CLAUDE_CONFIG_DIR/settings.json"
+python3 - <<'PY' "$MERGED_CLAUDE_CONFIG_DIR/settings.json" "$AUTOCOMPACT_ENABLED"
 import json
 import pathlib
 import sys
 
 settings_path = pathlib.Path(sys.argv[1])
-settings = json.loads(settings_path.read_text())
+autocompact = sys.argv[2].strip().lower() in ("1", "true", "yes", "on")
+
+try:
+    settings = json.loads(settings_path.read_text())
+    if not isinstance(settings, dict):
+        settings = {}
+except (ValueError, OSError):
+    settings = {}
+
+# Strip hooks so home/parent SessionStart automations do not run inside the wrapper.
 settings.pop("hooks", None)
+# Enable auto-compact by default so long wrapper sessions do not overflow context.
+settings["autoCompactEnabled"] = autocompact
+
+settings_path.parent.mkdir(parents=True, exist_ok=True)
 settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 PY
-fi
 
 CLAUDE_CONFIG_DIR="$MERGED_CLAUDE_CONFIG_DIR"
 
@@ -576,7 +690,7 @@ else
 fi
 
 echo "Launching Claude Code in clean HOME so it does not use your real Claude login."
-echo "Model: $MODEL"
+echo "Device: $DEVICE_LABEL | Model: $MODEL | Reasoning: $REASONING_EFFORT"
 echo
 
 CLAUDE_BIN_ARGS=()
@@ -603,7 +717,8 @@ env -i \
   ANTHROPIC_BASE_URL="$FILTER_URL" \
   ANTHROPIC_AUTH_TOKEN="$LITELLM_KEY" \
   ANTHROPIC_MODEL="$MODEL" \
-  ANTHROPIC_SMALL_FAST_MODEL="$MODEL" \
+  ANTHROPIC_SMALL_FAST_MODEL="$SMALL_FAST_MODEL" \
+  ANTHROPIC_REASONING_EFFORT="$REASONING_EFFORT" \
   CLAUDECODE= \
   CLAUDE_CODE_CHILD_SESSION= \
   CLAUDE_CODE_SESSION_ID= \
