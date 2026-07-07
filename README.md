@@ -167,7 +167,7 @@ export SUPABASE_ACCESS_TOKEN="..."
 export VERCEL_API_KEY="..."
 
 REAL_LITELLM_URL=http://127.0.0.1:4000 \
-ANTHROPIC_MODEL=gpt-5.3-chat \
+ANTHROPIC_MODEL=claude-fable-5 \
 MCP_CONFIG_PATH="$HOME/.claude/claudelitellmmcps.json" \
 bin/claudelitellm
 ```
@@ -175,14 +175,14 @@ bin/claudelitellm
 ## Environment variables
 ## LiteLLM config example
 
-The checked-in example config keeps the default `gpt-5.3-chat` model mapping for Azure:
+The checked-in example config keeps the default `claude-fable-5` model mapping for Azure:
 
 ```yaml
 model_list:
-  - model_name: gpt-5.3-chat
+  - model_name: claude-fable-5
     litellm_params:
-      model: openai/gpt-5.3-chat
-      api_base: os.environ/AZURE_API_BASE
+      model: openai/claude-fable-5
+      api_base: https://blessed-abundance-resource.services.ai.azure.com/anthropic/v1/messages
       api_key: os.environ/AZURE_API_KEY
       api_version: os.environ/AZURE_API_VERSION
       timeout: 600

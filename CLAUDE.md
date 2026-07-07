@@ -19,7 +19,7 @@ bin/claudelitellm
 ### Run with a non-default LiteLLM endpoint or model
 
 ```bash
-REAL_LITELLM_URL=http://127.0.0.1:4000 ANTHROPIC_MODEL=gpt-5.3-chat bin/claudelitellm
+REAL_LITELLM_URL=http://127.0.0.1:4000 ANTHROPIC_MODEL=claude-fable-5 bin/claudelitellm
 ```
 
 ### Run with a specific Claude or MCP config
@@ -110,7 +110,7 @@ Environment variables supported by the launcher:
 ## Files that matter
 
 - `bin/claudelitellm`: the main launcher, proxy generator, environment isolation logic, and Claude invocation.
-- `config/litellm.config.yaml.example`: example LiteLLM model mapping for `gpt-5.3-chat` via Azure and use of `LITELLM_MASTER_KEY`.
+- `config/litellm.config.yaml.example`: example LiteLLM model mapping for `claude-fable-5` via Azure and use of `LITELLM_MASTER_KEY`.
 - `README.md`: usage expectations and required local dependencies.
 - `.claude/settings.local.json`: local Claude Code permissions checked into this repo for common shell and GitHub auth commands.
 
