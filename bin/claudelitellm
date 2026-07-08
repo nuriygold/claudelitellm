@@ -636,6 +636,8 @@ except (ValueError, OSError):
 
 # Strip hooks so home/parent SessionStart automations do not run inside the wrapper.
 settings.pop("hooks", None)
+# Disable Co-Authored-By trailer on commits.
+settings["includeCoAuthoredBy"] = False
 # Enable auto-compact by default so long wrapper sessions do not overflow context.
 settings["autoCompactEnabled"] = autocompact
 
