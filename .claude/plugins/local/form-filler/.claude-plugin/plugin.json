@@ -1,0 +1,9 @@
+{
+  "name": "form-filler",
+  "version": "1.0.0",
+  "description": "Fill out forms (web, native macOS, or PDF) end-to-end and get smarter with every one — filling from a persistent profile of everything prior forms taught it, so a value like DOB entered once is auto-known on every form after. Operates from the conviction that the agent is already capable: it verifies its real tools before ever claiming it can't, sees via screenshots, types via System Events / cua-driver, and stops only at the lines a human must own (final submit, legal attestations, dishonest or ineligible input).",
+  "author": {
+    "name": "nuriygold",
+    "email": "hello@nuriy.com"
+  }
+}
