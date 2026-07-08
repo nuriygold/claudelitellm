@@ -645,6 +645,12 @@ settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 PY
 fi
 
+# Trim agent descriptions to stay under the 15k-token context limit.
+# This prevents Claude Code from loading excessive agent description context.
+if [[ -x "$REPO_ROOT/bin/trim-agent-descriptions" ]] && [[ -d "$MERGED_CLAUDE_CONFIG_DIR/agents" ]]; then
+  CLAUDE_AGENTS_DIR="$MERGED_CLAUDE_CONFIG_DIR/agents" $REPO_ROOT/bin/trim-agent-descriptions >/dev/null 2>&1 || true
+fi
+
 CLAUDE_CONFIG_DIR="$MERGED_CLAUDE_CONFIG_DIR"
 
 MCP_CONFIG_SOURCE=""
