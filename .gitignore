@@ -7,4 +7,6 @@ config/litellm.config.yaml
 .DS_Store
 .config/claudelitellm/*.env
 *.env
+# Device profiles are shipped, non-secret defaults (secrets stay in config/litellm.env).
+!devices/*.env
 .claude/settings.local.json
