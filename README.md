@@ -43,11 +43,11 @@ Practically, treat this environment as a wrapped Claude runtime with special con
 
 ## Files that matter
 
-- `bin/claudelitellm` — launcher script, filter-proxy generator, clean-home setup, Claude invocation, MCP injection
-- `bin/bootstrap-claude-config` — copies your real MCP config into this repo for local use without committing secrets
-- `config/litellm.config.yaml.example` — example LiteLLM config
-- `.claude/settings.local.json` — repo-local Claude settings used by default
-- `.claude/claudelitellmmcps.json.example` — safe MCP starter config you can copy locally
+- `bin/claudelitellm` - launcher script, filter-proxy generator, clean-home setup, Claude invocation, MCP injection
+- `bin/bootstrap-claude-config` - copies your real MCP config into this repo for local use without committing secrets
+- `config/litellm.config.yaml.example` - example LiteLLM config
+- `.claude/settings.local.json` - repo-local Claude settings used by default
+- `.claude/claudelitellmmcps.json.example` - safe MCP starter config you can copy locally
 
 ## Expected local dependencies
 
@@ -384,3 +384,51 @@ When debugging failures:
 - confirm the LiteLLM key is valid
 - confirm the resolved MCP config file exists and contains the expected server entries
 - confirm bridge-specific runtimes, such as Telegram, have their own local dependencies installed
+
+## Troubleshooting: agent descriptions overload (the getpwuid trap)
+
+If a launched session reports `Agent descriptions are over the 15.0k-token limit (~51.3k tokens)` and starts ~90% full on context, this is the `getpwuid` trap. It looks like a launcher bug but it is not fixable from the launcher alone. Read this before spending time on it.
+
+### Root cause
+
+Claude Code resolves the "user" config source from the **real OS home** (`getpwuid(getuid())` -> `/Users/claw`), not from the `HOME` env var. The launcher starts Claude with `env -i HOME="$CLEAN_HOME"` and `CLAUDE_CONFIG_DIR="$MERGED"` so the nested session does not reuse an existing Claude login. But Claude Code still reads `/Users/claw/.claude/agents` (the real home) **in addition to** `$CLAUDE_CONFIG_DIR/agents`, regardless of `HOME`.
+
+When `~/.claude/agents` is a symlink into `~/.openclaw/agents`, Claude Code follows it and loads the entire openclaw agents tree: a 2.7 GB directory containing a full nested `codex-home/`, `sessions/`, `harness-auth/`, and plugin skill caches per agent (~11,000 markdown files, 66 MB of `.md`). That is the 51.3k tokens. The launcher's clean-home overlay and `materialize_agents_dir` step only affect `$CLAUDE_CONFIG_DIR/agents`, which Claude Code ignores for the user source, so they cannot reduce this number. The same root cause is why the `SessionStart` hook (claude-mem) still ran despite the launcher stripping `hooks` from the merged `settings.json`: Claude Code reads the real `~/.claude/settings.json`.
+
+Confirmed empirically with a debug run: under `env -i HOME=<clean-home> CLAUDE_CONFIG_DIR=<merged>`, Claude Code's debug log still referenced `/Users/claw/.claude/agents` (the openclaw symlink) plus the merged temp path. `HOME` does not redirect the user config source.
+
+### Why the launcher-only fix cannot work
+
+Because Claude Code reads the real home via `getpwuid`, no amount of clean-home overlay, `materialize_agents_dir`, `--setting-sources`, or `CLAUDE_CONFIG_DIR` redirection can stop `~/.claude/agents` from being loaded when it is the openclaw symlink. The detach has to happen at the real `~/.claude/agents` symlink itself.
+
+### The actual fix (detach at the real symlink)
+
+`~/.openclaw/agents` is openclaw's runtime. openclaw references each agent directly via `agentDir` in `~/.openclaw/openclaw.json` (e.g. `agentDir: /Users/claw/.openclaw/agents/ruby/agent`), so openclaw keeps full access to `~/.openclaw/agents` and never needs `~/.claude/agents`. The `~/.claude/agents` symlink only exists to expose openclaw agents as Claude Code subagents. Replacing it with a minimal standalone copy keeps the personas available to Claude Code while detaching the 2.7 GB runtime:
+
+```bash
+# Backup the symlink target (it is just: /Users/claw/.openclaw/agents)
+readlink ~/.claude/agents > /tmp/agents-symlink-backup.txt
+
+# Build a minimal real agents dir: AGENT.md + IDENTITY.md per agent only
+tmp=$(mktemp -d /tmp/agents-min.XXXXXX)
+for d in /Users/claw/.openclaw/agents/*/; do
+  n=$(basename "$d"); mkdir -p "$tmp/$n/agent"
+  [ -f "$d/AGENT.md" ] && cp "$d/AGENT.md" "$tmp/$n/AGENT.md"
+  idf=$(find -L "$d/agent" -maxdepth 1 \( -iname "IDENTITY.md" -o -iname "identity.md" \) 2>/dev/null | head -1)
+  [ -n "$idf" ] && cp "$idf" "$tmp/$n/agent/IDENTITY.md"
+done
+
+# Swap: remove the symlink, move the minimal real dir in
+rm -f ~/.claude/agents
+mv "$tmp" ~/.claude/agents
+```
+
+Result: `~/.claude/agents` is a real directory with ~11 files (~27 KB, ~6.9k tokens), not a symlink to a 2.7 GB tree. openclaw's `~/.openclaw/agents` is untouched. Reversible: recreate the symlink with `ln -sf ~/.openclaw/agents ~/.claude/agents`.
+
+### Verifying
+
+Run `claudelitellm`, then `/agents` inside the session. Expect ~6.9k tokens, the six personas (adobe, anchor, emerald, iceman, main, ruby), and no "over the 15k-token limit" warning. If it still shows ~51.3k after the swap, the persistent Claude Code daemon may have cached the old config; restart the daemon and relaunch.
+
+### If you want zero openclaw personas in claudelitellm
+
+Remove the directory entirely instead of materializing a minimal copy: `rm -rf ~/.claude/agents`. Claude Code then has no custom subagents. openclaw is still unaffected because it uses `~/.openclaw/agents` directly.
