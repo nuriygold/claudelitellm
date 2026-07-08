@@ -109,7 +109,14 @@ overlay_tree() {
   [[ -d "$src" ]] || return 0
   mkdir -p "$dst"
   chmod -R u+w "$dst" 2>/dev/null || true
-  ditto "$src" "$dst"
+  # Copy everything except sessions directories (large, not needed in clean HOME).
+  # rsync is used instead of ditto for exclusion support.
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --exclude='sessions/' --exclude='.DS_Store' "$src/" "$dst/"
+  else
+    # Fallback: ditto copies everything including sessions, but works without rsync.
+    ditto "$src" "$dst"
+  fi
 }
 
 HOME_CLAUDE_CONFIG_DIR="$HOME/.claude"
@@ -645,6 +652,12 @@ settings_path.parent.mkdir(parents=True, exist_ok=True)
 settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 PY
 
+# Trim agent descriptions to stay under the 15k-token context limit.
+# Removes duplicate IDENTITY files, stub agents, and bootstrap files.
+if [[ -x "$REPO_ROOT/bin/trim-agent-descriptions" ]] && [[ -d "$MERGED_CLAUDE_CONFIG_DIR/agents" ]]; then
+  CLAUDE_AGENTS_DIR="$MERGED_CLAUDE_CONFIG_DIR/agents" $REPO_ROOT/bin/trim-agent-descriptions >/dev/null 2>&1 || true
+fi
+
 CLAUDE_CONFIG_DIR="$MERGED_CLAUDE_CONFIG_DIR"
 
 MCP_CONFIG_SOURCE=""
@@ -665,6 +678,7 @@ else
   RESOLVED_MCP_CONFIG_PATH=""
 fi
 
+echo
 echo "Merged config sources:"
 for source_dir in "${CONFIG_SOURCE_DIRS[@]}"; do
   echo "  - $source_dir"
