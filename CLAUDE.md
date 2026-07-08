@@ -85,10 +85,10 @@ The README documents these local dependencies:
 5. That proxy forwards requests to `REAL_LITELLM_URL`, recursively removing `output_config` from JSON request bodies.
 6. The launcher verifies the filter proxy by calling its `/v1/models` endpoint.
 7. It creates a temporary clean home directory with `mktemp -d`.
-8. It trims agent descriptions in the merged config to stay under the 15k-token context limit.
+8. It materializes a minimal agents directory (AGENT.md + IDENTITY.md only), replacing any symlink into `~/.openclaw/agents` so the multi-GB nested codex-home/sessions/plugin-skill trees are not dragged into the clean HOME, then trims agent descriptions to stay under the 15k-token context limit.
 9. It launches `claude` under `env -i`, pointing `ANTHROPIC_BASE_URL` at the filter proxy and passing through the selected model and MCP config.
 
-Config overlay uses `rsync` (with `ditto` fallback) and excludes `sessions/` directories to avoid copying hundreds of MB of session data into the clean HOME. MCP config paths must not reference other users' home directories.
+Config overlay uses `rsync` (with `ditto` fallback) and excludes `sessions/` and other bulky runtime state (plugin caches, SQLite DBs, codex-home trees) to avoid copying gigabytes into the clean HOME. The agents directory is materialized as a minimal real copy (AGENT.md + IDENTITY.md only) rather than carried as a symlink, so nested openclaw agent runtime trees do not flood Claude Code context. MCP config paths must not reference other users' home directories.
 
 ### Important implementation details
 
@@ -126,6 +126,7 @@ Environment variables supported by the launcher:
 - `README.md`: usage expectations and required local dependencies.
 - `.claude/settings.local.json`: local Claude Code permissions checked into this repo for common shell and GitHub auth commands.
 - `bin/trim-agent-descriptions`: enforces the 15k-token agent description limit by removing duplicate IDENTITY files, stub agents, and bootstrap files from `~/.claude/agents/`.
+- `materialize_agents_dir` (in `bin/claudelitellm`): rebuilds the merged `agents/` as a minimal copy of AGENT.md + IDENTITY.md per agent, dropping the multi-GB nested openclaw runtime trees that a symlinked `~/.claude/agents` would otherwise expose to Claude Code.
 
 ## Change guidance
 
