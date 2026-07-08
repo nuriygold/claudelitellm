@@ -1,4 +1,22 @@
+# LiteLLM proxy config example — mirrors the live ~/services/litellm/config.yaml prod config
+# (Azure OpenAI / Azure AI Foundry via blessed-abundance-resource) plus local Ollama fallbacks.
+# Verified live 2026-07-07: every Azure chat entry returns HTTP 200 through the prod proxy.
+#
+# env: source config/litellm.env (AZURE_API_KEY, LITELLM_MASTER_KEY, OLLAMA_API_KEY).
+#
+# Routing rules on this resource:
+#   azure_ai/<name>  -> https://blessed-abundance-resource.services.ai.azure.com  (Anthropic + partner models)
+#   openai/<name>    -> .../openai/v1                                              (OpenAI-deployed models)
+#
+# Intentionally excluded (verified dead or non-chat on this resource):
+#   grok-3, grok-3-mini, grok-4-fast-reasoning .... deprecated (HTTP 410)
+#   gpt-5.4-pro, gpt-5.3-codex, gpt-5.2-codex, gpt-5.1-codex-mini .... Responses-API only (chat 400)
+#   claude-opus-4-1 .... deployed but 404 on chat completions (api_not_supported) on this resource
+#   model-router .... router deployment, not directly callable via chat
+#   mistral-document-ai-2505 .... document-AI endpoint, not chat
+
 model_list:
+  # ───────────────── Anthropic Claude (azure_ai route) ─────────────────
   - model_name: claude-fable-5
     litellm_params:
       model: azure_ai/claude-fable-5
@@ -9,7 +27,7 @@ model_list:
     model_info:
       mode: chat
       supports_function_calling: true
-      fallbacks: [claude-opus-4-8, claude-opus-4-6]
+      fallbacks: [claude-opus-4-8, claude-opus-4-6, gpt-5.5]
 
   - model_name: claude-opus-4-8
     litellm_params:
@@ -21,7 +39,7 @@ model_list:
     model_info:
       mode: chat
       supports_function_calling: true
-      fallbacks: [claude-opus-4-6]
+      fallbacks: [claude-opus-4-6, gpt-5.5]
 
   - model_name: claude-opus-4-6
     litellm_params:
@@ -34,6 +52,202 @@ model_list:
       mode: chat
       supports_function_calling: true
 
+  # ───────────────── OpenAI GPT (openai route, /openai/v1) ─────────────────
+  - model_name: gpt-5.5
+    litellm_params:
+      model: openai/gpt-5.5
+      api_base: https://blessed-abundance-resource.services.ai.azure.com/openai/v1
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+      supports_function_calling: true
+
+  - model_name: gpt-5.4
+    litellm_params:
+      model: openai/gpt-5.4
+      api_base: https://blessed-abundance-resource.services.ai.azure.com/openai/v1
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+      supports_function_calling: true
+
+  - model_name: gpt-5.4-mini
+    litellm_params:
+      model: openai/gpt-5.4-mini
+      api_base: https://blessed-abundance-resource.services.ai.azure.com/openai/v1
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+      supports_function_calling: true
+
+  - model_name: gpt-5.4-mini-2
+    litellm_params:
+      model: openai/gpt-5.4-mini-2
+      api_base: https://blessed-abundance-resource.services.ai.azure.com/openai/v1
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+      supports_function_calling: true
+
+  - model_name: gpt-5.3-chat
+    litellm_params:
+      model: openai/gpt-5.3-chat
+      api_base: https://blessed-abundance-resource.services.ai.azure.com/openai/v1
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+      supports_function_calling: true
+
+  - model_name: gpt-5.2
+    litellm_params:
+      model: openai/gpt-5.2
+      api_base: https://blessed-abundance-resource.services.ai.azure.com/openai/v1
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+      supports_function_calling: true
+
+  - model_name: gpt-5-mini
+    litellm_params:
+      model: openai/gpt-5-mini
+      api_base: https://blessed-abundance-resource.services.ai.azure.com/openai/v1
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+      supports_function_calling: true
+
+  - model_name: gpt-4.1
+    litellm_params:
+      model: openai/gpt-4.1
+      api_base: https://blessed-abundance-resource.services.ai.azure.com/openai/v1
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+      supports_function_calling: true
+
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_base: https://blessed-abundance-resource.services.ai.azure.com/openai/v1
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+      supports_function_calling: true
+
+  # ───────────────── xAI Grok (azure_ai route) ─────────────────
+  - model_name: grok-4-1-fast-non-reasoning
+    litellm_params:
+      model: azure_ai/grok-4-1-fast-non-reasoning
+      api_base: https://blessed-abundance-resource.services.ai.azure.com
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+
+  # ───────────────── Mistral (azure_ai route) ─────────────────
+  - model_name: Mistral-Large-3
+    litellm_params:
+      model: azure_ai/Mistral-Large-3
+      api_base: https://blessed-abundance-resource.services.ai.azure.com
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+
+  - model_name: Codestral-2501
+    litellm_params:
+      model: azure_ai/Codestral-2501
+      api_base: https://blessed-abundance-resource.services.ai.azure.com
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+
+  - model_name: mistral-medium-2505
+    litellm_params:
+      model: azure_ai/mistral-medium-2505
+      api_base: https://blessed-abundance-resource.services.ai.azure.com
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+
+  # ───────────────── Microsoft Phi (azure_ai route) ─────────────────
+  - model_name: Phi-4-multimodal-instruct
+    litellm_params:
+      model: azure_ai/Phi-4-multimodal-instruct
+      api_base: https://blessed-abundance-resource.services.ai.azure.com
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+
+  # ───────────────── Image generation ─────────────────
+  - model_name: gpt-image-2
+    litellm_params:
+      model: openai/gpt-image-2
+      api_base: https://blessed-abundance-resource.services.ai.azure.com/openai/v1
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: image_generation
+
+  - model_name: FLUX-1.1-pro
+    litellm_params:
+      model: azure_ai/FLUX-1.1-pro
+      api_base: https://blessed-abundance-resource.services.ai.azure.com
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: image_generation
+
+  - model_name: FLUX.2-pro
+    litellm_params:
+      model: azure_ai/FLUX.2-pro
+      api_base: https://blessed-abundance-resource.services.ai.azure.com
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: image_generation
+
+  # ───────────────── Embeddings ─────────────────
+  - model_name: text-embedding-3-small
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_base: https://blessed-abundance-resource.services.ai.azure.com/openai/v1
+      api_key: os.environ/AZURE_API_KEY
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: embedding
+
+  # ───────────────── Local Ollama fallbacks (api_base http://127.0.0.1:11434) ─────────────────
   - model_name: glm-5.2:cloud
     litellm_params:
       model: ollama_chat/glm-5.2:cloud
