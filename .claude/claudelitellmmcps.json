@@ -12,13 +12,13 @@
       "args": [
         "-y",
         "@modelcontextprotocol/server-filesystem",
-        "/Users/aaliyathewarrior"
+        "/Users/claw"
       ]
     },
     "google-calendar": {
       "command": "node",
       "args": [
-        "/Users/aaliyathewarrior/.local/share/mcp-servers/google-calendar-mcp/dist/index.js"
+        "/Users/claw/.local/share/mcp-servers/google-calendar-mcp/dist/index.js"
       ]
     },
     "supabase": {

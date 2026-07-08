@@ -88,6 +88,8 @@ The README documents these local dependencies:
 8. It trims agent descriptions in the merged config to stay under the 15k-token context limit.
 9. It launches `claude` under `env -i`, pointing `ANTHROPIC_BASE_URL` at the filter proxy and passing through the selected model and MCP config.
 
+Config overlay uses `rsync` (with `ditto` fallback) and excludes `sessions/` directories to avoid copying hundreds of MB of session data into the clean HOME. MCP config paths must not reference other users' home directories.
+
 ### Important implementation details
 
 - The launcher is the product. There is no separate library or multi-module app structure here.
