@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# trim-agent-descriptions: enforce the 15k-token agent description limit
+# for ~/.claude/agents/ by removing duplicate files, stub agents, and
+# oversized bootstrap files.
+#
+# Claude Code loads AGENT.md, IDENTITY.md, and bootstrap.md files from
+# each agent directory into context. The combined total must stay under
+# approximately 15k tokens (~60KB).
+#
+# Usage:
+#   bin/trim-agent-descriptions          # trim and report
+#   bin/trim-agent-descriptions --check  # exit 1 if over limit, no changes
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+AGENTS_DIR="${CLAUDE_AGENTS_DIR:-$HOME/.claude/agents}"
+TOKEN_LIMIT=15000
+BYTE_LIMIT=$((TOKEN_LIMIT * 4))  # ~4 bytes per token
+CHECK_ONLY=false
+
+if [[ "${1:-}" == "--check" ]]; then
+  CHECK_ONLY=true
+fi
+
+count_description_bytes() {
+  local total=0
+  local f
+  # IDENTITY files (case-insensitive match)
+  while IFS= read -r f; do
+    [[ -f "$f" ]] && total=$((total + $(wc -c < "$f")))
+  done < <(find -L "$AGENTS_DIR" -maxdepth 3 \( -iname "IDENTITY.md" -o -iname "identity.md" \) -not -path "*/sessions/*" -not -path "*/.tmp/*" -not -path "*/codex-home/*" -not -path "*/harness-auth/*" -not -path "*/acp-auth/*" 2>/dev/null)
+  # AGENT.md files (top-level only, not nested copies)
+  while IFS= read -r f; do
+    [[ -f "$f" ]] && total=$((total + $(wc -c < "$f")))
+  done < <(find -L "$AGENTS_DIR" -maxdepth 2 -name "AGENT.md" -not -path "*/agent/AGENT*" 2>/dev/null)
+  # bootstrap.md files (top-level and agent/ only, not nested temp dirs)
+  while IFS= read -r f; do
+    [[ -f "$f" ]] && total=$((total + $(wc -c < "$f")))
+  done < <(find -L "$AGENTS_DIR" -maxdepth 3 -name "bootstrap.md" -not -path "*/sessions/*" -not -path "*/.tmp/*" -not -path "*/codex-home/*" -not -path "*/harness-auth/*" -not -path "*/acp-auth/*" 2>/dev/null)
+  echo "$total"
+}
+
+remove_duplicate_identity_files() {
+  echo "Removing duplicate IDENTITY_*_*.md files..."
+  find -L "$AGENTS_DIR" -maxdepth 3 -name "IDENTITY_*_*.md" -not -path "*/sessions/*" -print -delete 2>/dev/null || true
+}
+
+remove_duplicate_agent_files() {
+  echo "Removing duplicate AGENT files inside agent/ subdirs..."
+  find -L "$AGENTS_DIR" -maxdepth 3 -path "*/agent/AGENT*.md" -not -path "*/sessions/*" -print -delete 2>/dev/null || true
+}
+
+remove_stub_agents() {
+  echo "Removing stub agent directories (no IDENTITY and no openclaw config)..."
+  local d
+  for d in "$AGENTS_DIR"/*/; do
+    [[ -d "$d" ]] || continue
+    local name
+    name="$(basename "$d")"
+    # Skip if it has an IDENTITY file
+    if find -L "$d" -maxdepth 2 \( -iname "IDENTITY.md" -o -iname "identity.md" \) -not -path "*/sessions/*" 2>/dev/null | grep -q .; then
+      continue
+    fi
+    # Skip if it has an AGENT.md with real content (more than a stub)
+    if [[ -f "$d/AGENT.md" ]] && [[ $(wc -c < "$d/AGENT.md") -gt 100 ]]; then
+      # Check if it's a stub (generic charter without persona-specific content)
+      if grep -q "responsible for the responsibilities implied" "$d/AGENT.md" 2>/dev/null; then
+        echo "  Removing stub: $name"
+        rm -rf "$d"
+      fi
+      continue
+    fi
+    echo "  Removing empty stub: $name"
+    rm -rf "$d"
+  done
+}
+
+remove_oversized_bootstraps() {
+  echo "Removing bootstrap.md files from agent dirs..."
+  find -L "$AGENTS_DIR" -maxdepth 3 -name "bootstrap.md" -not -path "*/sessions/*" -not -path "*/.tmp/*" -not -path "*/codex-home/*" -not -path "*/harness-auth/*" -not -path "*/acp-auth/*" -print -delete 2>/dev/null || true
+}
+
+remove_agents_local_symlink() {
+  if [[ -L "$AGENTS_DIR/agents-local" ]]; then
+    echo "Removing agents-local symlink..."
+    rm -f "$AGENTS_DIR/agents-local"
+  fi
+}
+
+main() {
+  if [[ ! -d "$AGENTS_DIR" ]]; then
+    echo "No agents directory found at $AGENTS_DIR"
+    exit 0
+  fi
+
+  local before
+  before=$(count_description_bytes)
+  echo "Current agent description files: ${before} bytes (~$((before / 4)) tokens)"
+  echo "Limit: ${BYTE_LIMIT} bytes (~${TOKEN_LIMIT} tokens)"
+  echo
+
+  if [[ "$before" -le "$BYTE_LIMIT" ]]; then
+    echo "Already under limit. Nothing to do."
+    exit 0
+  fi
+
+  if $CHECK_ONLY; then
+    echo "OVER LIMIT: ${before} bytes exceeds ${BYTE_LIMIT} byte limit"
+    exit 1
+  fi
+
+  remove_agents_local_symlink
+  remove_duplicate_identity_files
+  remove_duplicate_agent_files
+  remove_stub_agents
+  remove_oversized_bootstraps
+
+  local after
+  after=$(count_description_bytes)
+  echo
+  echo "After cleanup: ${after} bytes (~$((after / 4)) tokens)"
+
+  if [[ "$after" -gt "$BYTE_LIMIT" ]]; then
+    echo "WARNING: Still over limit after automated cleanup."
+    echo "Manual trimming of IDENTITY.md files may be required."
+    exit 1
+  fi
+
+  echo "SUCCESS: Under the ${TOKEN_LIMIT}-token limit."
+}
+
+main

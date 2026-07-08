@@ -19,7 +19,7 @@ bin/claudelitellm
 ### Run with a non-default LiteLLM endpoint or model
 
 ```bash
-REAL_LITELLM_URL=http://127.0.0.1:4000 ANTHROPIC_MODEL=gpt-5.4 bin/claudelitellm
+REAL_LITELLM_URL=http://127.0.0.1:4000 ANTHROPIC_MODEL=claude-fable-5 bin/claudelitellm
 ```
 
 ### Run with a specific Claude or MCP config
@@ -37,6 +37,15 @@ CLAUDE_CONFIG_DIR="$HOME/.claude" MCP_CONFIG_PATH="$HOME/.claude/claudelitellmmc
 ```bash
 bash -n bin/claudelitellm
 ```
+
+### Trim agent descriptions to stay under the 15k-token limit
+
+```bash
+bin/trim-agent-descriptions          # trim duplicates and stubs, report sizes
+bin/trim-agent-descriptions --check  # exit 1 if over limit, make no changes
+```
+
+Claude Code loads AGENT.md, IDENTITY.md, and bootstrap.md files from each agent directory in `~/.claude/agents/` into context. The combined total must stay under approximately 15k tokens (~60KB). The trim script removes duplicate IDENTITY files, stub agents, and bootstrap files to enforce this limit. The launcher also runs this script automatically after merging config directories into the clean HOME.
 
 ### Run the embedded filter proxy directly for debugging
 
@@ -76,7 +85,8 @@ The README documents these local dependencies:
 5. That proxy forwards requests to `REAL_LITELLM_URL`, recursively removing `output_config` from JSON request bodies.
 6. The launcher verifies the filter proxy by calling its `/v1/models` endpoint.
 7. It creates a temporary clean home directory with `mktemp -d`.
-8. It launches `claude` under `env -i`, pointing `ANTHROPIC_BASE_URL` at the filter proxy and passing through the selected model and MCP config.
+8. It trims agent descriptions in the merged config to stay under the 15k-token context limit.
+9. It launches `claude` under `env -i`, pointing `ANTHROPIC_BASE_URL` at the filter proxy and passing through the selected model and MCP config.
 
 ### Important implementation details
 
@@ -110,9 +120,10 @@ Environment variables supported by the launcher:
 ## Files that matter
 
 - `bin/claudelitellm`: the main launcher, proxy generator, environment isolation logic, and Claude invocation.
-- `config/litellm.config.yaml.example`: example LiteLLM model mapping for `gpt-5.4` via Azure and use of `LITELLM_MASTER_KEY`.
+- `config/litellm.config.yaml.example`: example LiteLLM model mapping for `claude-fable-5` via Azure and use of `LITELLM_MASTER_KEY`.
 - `README.md`: usage expectations and required local dependencies.
 - `.claude/settings.local.json`: local Claude Code permissions checked into this repo for common shell and GitHub auth commands.
+- `bin/trim-agent-descriptions`: enforces the 15k-token agent description limit by removing duplicate IDENTITY files, stub agents, and bootstrap files from `~/.claude/agents/`.
 
 ## Change guidance
 
