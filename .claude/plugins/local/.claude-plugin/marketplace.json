@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "local-fleet",
+  "description": "Local Claude Code plugins for this environment (claw / openclaw fleet).",
+  "owner": {
+    "name": "nuriygold",
+    "email": "hello@nuriy.com"
+  },
+  "plugins": [
+    {
+      "name": "form-filler",
+      "description": "Capable, learning form completion — fills web/native/PDF forms end-to-end and remembers every field for the next form.",
+      "author": {
+        "name": "nuriygold"
+      },
+      "category": "productivity",
+      "source": "./form-filler"
+    }
+  ]
+}
