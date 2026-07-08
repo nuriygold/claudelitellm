@@ -235,6 +235,28 @@ export OLLAMA_API_KEY="<your-ollama-api-key>"
 
 Copy `config/litellm.config.yaml.example` to `config/litellm.config.yaml` before starting the repo-local LiteLLM instance.
 
+## LiteLLM config example
+
+The checked-in example config keeps the default `gpt-5.4` model mapping for Azure:
+
+```yaml
+model_list:
+  - model_name: gpt-5.4
+    litellm_params:
+      model: azure/gpt-5.4
+      api_base: os.environ/AZURE_API_BASE
+      api_key: os.environ/AZURE_API_KEY
+      api_version: os.environ/AZURE_API_VERSION
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+litellm_settings:
+  drop_params: true
+```
+
+Copy `config/litellm.config.yaml.example` to `config/litellm.config.yaml` before starting the repo-local LiteLLM instance.
+
 ## Environment
 
 Supported variables:

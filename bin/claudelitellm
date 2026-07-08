@@ -27,114 +27,6 @@ if path.exists():
 PY
 }
 
-merge_enabled_plugins_into_home_settings() {
-  local canonical_settings_path="$1"
-  local merged_settings_path="$2"
-
-  python3 - <<'PY' "$canonical_settings_path" "$merged_settings_path"
-import json
-import pathlib
-import sys
-import tempfile
-
-canonical_path = pathlib.Path(sys.argv[1])
-merged_path = pathlib.Path(sys.argv[2])
-
-if not merged_path.exists():
-    raise SystemExit(0)
-
-try:
-    merged_settings = json.loads(merged_path.read_text())
-except Exception as exc:
-    print(f"WARN: Failed to read merged settings for plugin persistence: {exc}", file=sys.stderr)
-    raise SystemExit(0)
-
-try:
-    canonical_settings = json.loads(canonical_path.read_text()) if canonical_path.exists() else {}
-except Exception as exc:
-    print(f"WARN: Failed to read canonical settings for plugin persistence: {exc}", file=sys.stderr)
-    raise SystemExit(0)
-
-canonical_plugins = canonical_settings.get("enabledPlugins")
-if not isinstance(canonical_plugins, dict):
-    canonical_plugins = {}
-
-merged_plugins = merged_settings.get("enabledPlugins")
-if not isinstance(merged_plugins, dict):
-    merged_plugins = {}
-
-normalized_plugins = dict(canonical_plugins)
-for key, value in merged_plugins.items():
-    normalized_plugins[key] = value
-    if key.endswith("@claude-plugins-official"):
-        normalized_plugins[key.rsplit("@", 1)[0]] = value
-
-if canonical_settings.get("enabledPlugins") == normalized_plugins:
-    raise SystemExit(0)
-
-canonical_settings["enabledPlugins"] = normalized_plugins
-canonical_path.parent.mkdir(parents=True, exist_ok=True)
-with tempfile.NamedTemporaryFile("w", dir=canonical_path.parent, delete=False) as handle:
-    temp_path = pathlib.Path(handle.name)
-    json.dump(canonical_settings, handle, indent=2)
-    handle.write("\n")
-
-temp_path.replace(canonical_path)
-PY
-}
-
-merge_global_claude_state_into_home() {
-  local canonical_state_path="$1"
-  local merged_state_path="$2"
-
-  python3 - <<'PY' "$canonical_state_path" "$merged_state_path"
-import json
-import pathlib
-import sys
-import tempfile
-
-canonical_path = pathlib.Path(sys.argv[1])
-merged_path = pathlib.Path(sys.argv[2])
-
-if not merged_path.exists():
-    raise SystemExit(0)
-
-try:
-    merged_state = json.loads(merged_path.read_text())
-except Exception as exc:
-    print(f"WARN: Failed to read merged global Claude state for plugin persistence: {exc}", file=sys.stderr)
-    raise SystemExit(0)
-
-try:
-    canonical_state = json.loads(canonical_path.read_text()) if canonical_path.exists() else {}
-except Exception as exc:
-    print(f"WARN: Failed to read canonical global Claude state for plugin persistence: {exc}", file=sys.stderr)
-    raise SystemExit(0)
-
-plugin_related_keys = {
-    "officialMarketplaceAutoInstallAttempted",
-    "officialMarketplaceAutoInstalled",
-}
-
-updated = False
-for key in plugin_related_keys:
-    if key in merged_state and canonical_state.get(key) != merged_state[key]:
-        canonical_state[key] = merged_state[key]
-        updated = True
-
-if not updated:
-    raise SystemExit(0)
-
-canonical_path.parent.mkdir(parents=True, exist_ok=True)
-with tempfile.NamedTemporaryFile("w", dir=canonical_path.parent, delete=False) as handle:
-    temp_path = pathlib.Path(handle.name)
-    json.dump(canonical_state, handle, indent=2)
-    handle.write("\n")
-
-temp_path.replace(canonical_path)
-PY
-}
-
 port_listen_pids() {
   lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//'
 }
@@ -148,12 +40,6 @@ filter_proxy_matches_expected() {
 }
 
 cleanup() {
-  if [[ -n "${CANONICAL_SETTINGS_PATH:-}" && -n "${MERGED_CLAUDE_CONFIG_DIR:-}" ]]; then
-    merge_enabled_plugins_into_home_settings "$CANONICAL_SETTINGS_PATH" "$MERGED_CLAUDE_CONFIG_DIR/settings.json"
-  fi
-  if [[ -n "${CANONICAL_CLAUDE_STATE_PATH:-}" && -n "${CLEAN_HOME:-}" ]]; then
-    merge_global_claude_state_into_home "$CANONICAL_CLAUDE_STATE_PATH" "$CLEAN_HOME/.claude.json"
-  fi
   if [[ -n "${FILTER_PID:-}" ]]; then
     kill "$FILTER_PID" 2>/dev/null || true
     wait "$FILTER_PID" 2>/dev/null || true
@@ -230,16 +116,115 @@ HOME_CLAUDE_CONFIG_DIR="$HOME/.claude"
 HOME_CODEX_CONFIG_DIR="$HOME/.codex"
 REPO_CLAUDE_CONFIG_DIR="$REPO_ROOT/.claude"
 REPO_CODEX_CONFIG_DIR="$REPO_ROOT/.codex"
-CANONICAL_SETTINGS_PATH="$HOME_CLAUDE_CONFIG_DIR/settings.json"
-CANONICAL_CLAUDE_STATE_PATH="$HOME/.claude.json"
 HOME_MCP_CONFIG_PATH="$HOME_CLAUDE_CONFIG_DIR/claudelitellmmcps.json"
 REPO_MCP_CONFIG_PATH="$REPO_CLAUDE_CONFIG_DIR/claudelitellmmcps.json"
 LOCAL_LITELLM_CONFIG_PATH="$REPO_ROOT/config/litellm.config.yaml"
 LOCAL_LITELLM_ENV_PATH="$REPO_ROOT/config/litellm.env"
+if [[ -n "${REAL_LITELLM_URL:-}" ]]; then
+  REAL_LITELLM_URL_EXPLICIT=1
+fi
 REAL_LITELLM_URL="${REAL_LITELLM_URL:-http://127.0.0.1:4000}"
 FILTER_PORT="${FILTER_PORT:-4001}"
 FILTER_URL="http://127.0.0.1:${FILTER_PORT}"
-MODEL="${ANTHROPIC_MODEL:-claude-fable-5}"
+
+# --- Per-device personalization ---------------------------------------------
+# Each machine that runs this launcher gets its own profile in devices/<name>.env.
+# Profiles set DEFAULTS only; anything exported explicitly in the shell wins.
+DEVICES_DIR="${CLAUDELITELLM_DEVICES_DIR:-$REPO_ROOT/devices}"
+CLAUDELITELLM_DEVICE_STATE="${CLAUDELITELLM_DEVICE_STATE:-$HOME_CLAUDE_CONFIG_DIR/claudelitellm-device}"
+
+device_from_hostname() {
+  local host
+  host="$( (scutil --get ComputerName 2>/dev/null || hostname 2>/dev/null || true) \
+    | tr '[:upper:]' '[:lower:]' )"
+  case "$host" in
+    *claw*|*mac-mini*|*macmini*) echo "claw" ;;
+    *rudolph*|*macbook-air*|*macbookair*) echo "rudolph" ;;
+    *debby*|*oldmac*|*debian*) echo "debby" ;;
+    *) echo "" ;;
+  esac
+}
+
+prompt_for_device() {
+  local names=() name f
+  for f in "$DEVICES_DIR"/*.env; do
+    [[ -f "$f" ]] || continue
+    name="$(basename "$f" .env)"
+    names+=("$name")
+  done
+  [[ ${#names[@]} -gt 0 ]] || { printf ''; return 0; }
+
+  local i
+  {
+    echo "Which device is this?"
+    for i in "${!names[@]}"; do
+      echo "  $((i + 1))) ${names[$i]}"
+    done
+  } >&2
+
+  local reply=""
+  read -r -p "Device [1-${#names[@]} or name]: " reply </dev/tty || true
+  reply="$(printf '%s' "$reply" | tr -d '[:space:]')"
+  [[ -n "$reply" ]] || { printf ''; return 0; }
+
+  if [[ "$reply" =~ ^[0-9]+$ ]]; then
+    local idx=$((reply - 1))
+    if [[ $idx -ge 0 && $idx -lt ${#names[@]} ]]; then
+      printf '%s' "${names[$idx]}"
+      return 0
+    fi
+  fi
+  printf '%s' "$reply"
+}
+
+resolve_device() {
+  local device=""
+
+  if [[ -n "${CLAUDELITELLM_DEVICE:-}" ]]; then
+    device="$CLAUDELITELLM_DEVICE"
+  elif [[ -f "$CLAUDELITELLM_DEVICE_STATE" ]]; then
+    device="$(head -n1 "$CLAUDELITELLM_DEVICE_STATE" 2>/dev/null | tr -d '[:space:]')"
+  fi
+
+  if [[ -z "$device" ]]; then
+    device="$(device_from_hostname)"
+  fi
+
+  if { [[ -z "$device" ]] || [[ ! -f "$DEVICES_DIR/$device.env" ]]; } && [[ -t 0 && -t 2 ]]; then
+    device="$(prompt_for_device)"
+  fi
+
+  if [[ -z "$device" || ! -f "$DEVICES_DIR/$device.env" ]]; then
+    device="claw"
+  fi
+
+  printf '%s' "$device"
+}
+
+ACTIVE_DEVICE="$(resolve_device)"
+DEVICE_PROFILE_PATH="$DEVICES_DIR/$ACTIVE_DEVICE.env"
+if [[ -f "$DEVICE_PROFILE_PATH" ]]; then
+  # shellcheck disable=SC1090
+  source "$DEVICE_PROFILE_PATH"
+  if [[ "${CLAUDELITELLM_DEVICE_PERSIST:-1}" != "0" ]]; then
+    mkdir -p "$(dirname "$CLAUDELITELLM_DEVICE_STATE")" 2>/dev/null || true
+    printf '%s\n' "$ACTIVE_DEVICE" >"$CLAUDELITELLM_DEVICE_STATE" 2>/dev/null || true
+  fi
+fi
+DEVICE_LABEL="${CLAUDELITELLM_DEVICE_LABEL:-$ACTIVE_DEVICE}"
+
+# Model + reasoning defaults: explicit env wins, then device profile, then built-in.
+MODEL="${ANTHROPIC_MODEL:-${CLAUDELITELLM_MODEL:-claude-fable-5}}"
+SMALL_FAST_MODEL="${ANTHROPIC_SMALL_FAST_MODEL:-${CLAUDELITELLM_SMALL_FAST_MODEL:-$MODEL}}"
+REASONING_EFFORT="${ANTHROPIC_REASONING_EFFORT:-${CLAUDELITELLM_REASONING_EFFORT:-medium}}"
+AUTOCOMPACT_ENABLED="${CLAUDELITELLM_AUTOCOMPACT:-true}"
+
+# Allow a device profile to set a per-device LiteLLM endpoint default.
+# Explicit REAL_LITELLM_URL from the shell still wins over the device value.
+if [[ -n "${CLAUDELITELLM_REAL_LITELLM_URL:-}" && -z "${REAL_LITELLM_URL_EXPLICIT:-}" ]]; then
+  REAL_LITELLM_URL="$CLAUDELITELLM_REAL_LITELLM_URL"
+fi
+
 LOCAL_LITELLM_LOG_PATH="${LOCAL_LITELLM_LOG_PATH:-${TMPDIR:-/tmp}/litellm-local.log}"
 
 FILTER_SCRIPT_PATH="${FILTER_SCRIPT_PATH:-${TMPDIR:-/tmp}/litellm_strip_output_config_proxy.py}"
@@ -314,7 +299,9 @@ materialize_mcp_config() {
 echo "=== Claude Code → filter proxy → existing LiteLLM → Azure ${MODEL} ==="
 echo "Real LiteLLM: $REAL_LITELLM_URL"
 echo "Filter URL:   $FILTER_URL"
+echo "Device:       $DEVICE_LABEL"
 echo "Model:        $MODEL"
+echo "Reasoning:    $REASONING_EFFORT"
 echo
 
 echo "Checking existing LiteLLM..."
@@ -632,24 +619,29 @@ if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
   overlay_tree "$CLAUDE_CONFIG_DIR" "$MERGED_CLAUDE_CONFIG_DIR"
 fi
 
-if [[ -f "$MERGED_CLAUDE_CONFIG_DIR/settings.json" ]]; then
-  python3 - <<'PY' "$MERGED_CLAUDE_CONFIG_DIR/settings.json"
+python3 - <<'PY' "$MERGED_CLAUDE_CONFIG_DIR/settings.json" "$AUTOCOMPACT_ENABLED"
 import json
 import pathlib
 import sys
 
 settings_path = pathlib.Path(sys.argv[1])
-settings = json.loads(settings_path.read_text())
+autocompact = sys.argv[2].strip().lower() in ("1", "true", "yes", "on")
+
+try:
+    settings = json.loads(settings_path.read_text())
+    if not isinstance(settings, dict):
+        settings = {}
+except (ValueError, OSError):
+    settings = {}
+
+# Strip hooks so home/parent SessionStart automations do not run inside the wrapper.
 settings.pop("hooks", None)
+# Enable auto-compact by default so long wrapper sessions do not overflow context.
+settings["autoCompactEnabled"] = autocompact
+
+settings_path.parent.mkdir(parents=True, exist_ok=True)
 settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 PY
-fi
-
-# Trim agent descriptions to stay under the 15k-token context limit.
-# This prevents Claude Code from loading excessive agent description context.
-if [[ -x "$REPO_ROOT/bin/trim-agent-descriptions" ]] && [[ -d "$MERGED_CLAUDE_CONFIG_DIR/agents" ]]; then
-  CLAUDE_AGENTS_DIR="$MERGED_CLAUDE_CONFIG_DIR/agents" $REPO_ROOT/bin/trim-agent-descriptions >/dev/null 2>&1 || true
-fi
 
 CLAUDE_CONFIG_DIR="$MERGED_CLAUDE_CONFIG_DIR"
 
@@ -698,7 +690,7 @@ else
 fi
 
 echo "Launching Claude Code in clean HOME so it does not use your real Claude login."
-echo "Model: $MODEL"
+echo "Device: $DEVICE_LABEL | Model: $MODEL | Reasoning: $REASONING_EFFORT"
 echo
 
 CLAUDE_BIN_ARGS=()
@@ -725,7 +717,8 @@ env -i \
   ANTHROPIC_BASE_URL="$FILTER_URL" \
   ANTHROPIC_AUTH_TOKEN="$LITELLM_KEY" \
   ANTHROPIC_MODEL="$MODEL" \
-  ANTHROPIC_SMALL_FAST_MODEL="$MODEL" \
+  ANTHROPIC_SMALL_FAST_MODEL="$SMALL_FAST_MODEL" \
+  ANTHROPIC_REASONING_EFFORT="$REASONING_EFFORT" \
   CLAUDECODE= \
   CLAUDE_CODE_CHILD_SESSION= \
   CLAUDE_CODE_SESSION_ID= \
