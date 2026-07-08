@@ -800,7 +800,14 @@ elif [[ -n "$MCP_CONFIG_SOURCE" ]]; then
 fi
 echo
 
-CLAUDE_ARGS=(--model "$MODEL")
+# Pass --effort so the printed reasoning level actually controls the session.
+# Claude Code ignores the ANTHROPIC_REASONING_EFFORT env var; only --effort (or
+# effortLevel in settings.json) applies. Guard against an invalid value so a
+# bogus ANTHROPIC_REASONING_EFFORT cannot break the launch.
+case "$REASONING_EFFORT" in
+  low|medium|high|xhigh|max) CLAUDE_ARGS=(--model "$MODEL" --effort "$REASONING_EFFORT") ;;
+  *) CLAUDE_ARGS=(--model "$MODEL") ;;
+esac
 
 if [[ -n "$RESOLVED_MCP_CONFIG_PATH" && -f "$RESOLVED_MCP_CONFIG_PATH" ]]; then
   CLAUDE_ARGS=(--mcp-config "$RESOLVED_MCP_CONFIG_PATH" "${CLAUDE_ARGS[@]}")
