@@ -183,6 +183,41 @@ overlay_tree() {
   fi
 }
 
+materialize_agents_dir() {
+  local merged="$1"
+  local agents_path="$merged/agents"
+  [[ -e "$agents_path" ]] || return 0
+
+  # The home agents dir is commonly a symlink into ~/.openclaw/agents, which
+  # carries multi-GB nested codex-home/sessions/harness-auth/plugin-skill trees
+  # per agent (11k+ markdown files, 66MB of .md). Copying or following that
+  # whole tree floods Claude Code context (50k+ tokens, ~90% used at session
+  # start) and exhausts disk. Keep only the per-agent description files
+  # (AGENT.md + IDENTITY.md) so /agents stays small and within the 15k budget.
+  local src
+  src="$(readlink -f "$agents_path" 2>/dev/null || printf '%s' "$agents_path")"
+  [[ -d "$src" ]] || return 0
+
+  local pruned
+  pruned="$(mktemp -d "${TMPDIR:-/tmp}/claude-agents.XXXXXX")"
+
+  local agent_dir name dst idf
+  while IFS= read -r agent_dir; do
+    [[ -d "$agent_dir" ]] || continue
+    name="$(basename "$agent_dir")"
+    dst="$pruned/$name"
+    mkdir -p "$dst/agent"
+    [[ -f "$agent_dir/AGENT.md" ]] && cp -f "$agent_dir/AGENT.md" "$dst/AGENT.md"
+    idf="$(find -L "$agent_dir/agent" -maxdepth 1 \( -iname "IDENTITY.md" -o -iname "identity.md" \) 2>/dev/null | head -1)"
+    [[ -n "$idf" && -f "$idf" ]] && cp -fL "$idf" "$dst/agent/IDENTITY.md"
+  done < <(find -L "$src" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+
+  # Replace the symlink/overlaid dir with the pruned materialized copy.
+  # rm on a symlink removes only the link, never its target.
+  rm -rf "$agents_path"
+  mv "$pruned" "$agents_path"
+}
+
 HOME_CLAUDE_CONFIG_DIR="$HOME/.claude"
 HOME_CODEX_CONFIG_DIR="$HOME/.codex"
 REPO_CLAUDE_CONFIG_DIR="$REPO_ROOT/.claude"
@@ -689,6 +724,11 @@ done
 if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
   overlay_tree "$CLAUDE_CONFIG_DIR" "$MERGED_CLAUDE_CONFIG_DIR"
 fi
+
+# Materialize a minimal agents dir (AGENT.md + IDENTITY.md only) so the clean
+# HOME does not pull in the multi-GB openclaw agents tree with nested codex
+# homes, sessions, and plugin skill caches that flood Claude Code context.
+materialize_agents_dir "$MERGED_CLAUDE_CONFIG_DIR"
 
 python3 - <<'PY' "$MERGED_CLAUDE_CONFIG_DIR/settings.json" "$AUTOCOMPACT_ENABLED"
 import json
