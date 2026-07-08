@@ -235,6 +235,68 @@ export OLLAMA_API_KEY="<your-ollama-api-key>"
 
 Copy `config/litellm.config.yaml.example` to `config/litellm.config.yaml` before starting the repo-local LiteLLM instance.
 
+## LiteLLM config example
+
+The checked-in example config keeps the default `gpt-5.4` model mapping for Azure:
+
+```yaml
+model_list:
+  - model_name: claude-fable-5
+    litellm_params:
+      model: openai/claude-fable-5
+      api_base: https://blessed-abundance-resource.services.ai.azure.com/anthropic/v1/messages
+      api_key: os.environ/AZURE_API_KEY
+      api_version: os.environ/AZURE_API_VERSION
+      timeout: 600
+      stream_timeout: 600
+    model_info:
+      mode: chat
+      supports_function_calling: true
+
+  - model_name: glm-5.2:cloud
+    litellm_params:
+      model: ollama_chat/glm-5.2:cloud
+      api_base: http://127.0.0.1:11434
+      api_key: os.environ/OLLAMA_API_KEY
+      reasoning_effort: medium
+    model_info:
+      supports_function_calling: true
+      mode: chat
+
+  - model_name: gpt-oss:20b:cloud
+    litellm_params:
+      model: ollama_chat/gpt-oss:20b:cloud
+      api_base: http://127.0.0.1:11434
+      api_key: os.environ/OLLAMA_API_KEY
+    model_info:
+      supports_function_calling: true
+      mode: chat
+
+  - model_name: qwen3-coder:30b
+    litellm_params:
+      model: ollama_chat/qwen3-coder:30b
+      api_base: http://127.0.0.1:11434
+      api_key: os.environ/OLLAMA_API_KEY
+      keep_alive: 8m
+    model_info:
+      supports_function_calling: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+litellm_settings:
+  default_model_name: glm-5.2:cloud
+  drop_params: true
+```
+
+Set the Ollama API key in your environment before starting LiteLLM:
+
+```bash
+export OLLAMA_API_KEY="<your-ollama-api-key>"
+```
+
+Copy `config/litellm.config.yaml.example` to `config/litellm.config.yaml` before starting the repo-local LiteLLM instance.
+
 ## Environment
 
 Supported variables:
