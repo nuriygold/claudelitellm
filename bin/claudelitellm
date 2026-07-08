@@ -102,6 +102,62 @@ collect_parent_config_dirs() {
   done
 }
 
+# Runtime state, caches, and bulky plugin/app bundles that must never be copied
+# into the clean HOME. The clean HOME only needs Claude/Codex *config*
+# (settings, agents, skills, rules, memories, MCP config, config.toml, auth).
+# Copying the runtime state below previously pulled multi-GB plugin caches,
+# installed .app bundles, and a 1GB logs database into the temp HOME and
+# exhausted disk space ("No space left on device"). rsync excludes are
+# path-relative, so each pattern is skipped anywhere in the overlay tree.
+RUNTIME_EXCLUDES=(
+  'sessions/'
+  '.DS_Store'
+  # Plugin runtime and installed app bundles (hundreds of MB to GB).
+  'plugins/cache/'
+  'plugins/marketplaces/'
+  'plugins/data/'
+  'plugins/.plugin-appserver/'
+  'plugins/.marketplace-plugin-source-staging/'
+  'plugins/.remote-plugin-install-staging/'
+  # Codex plugin/marketplace sync staging containing .app bundles.
+  '.tmp/'
+  'tmp/'
+  'computer-use/'
+  'generated_images/'
+  'archived_sessions/'
+  'attachments/'
+  'shell_snapshots/'
+  'sqlite/'
+  'log/'
+  'process_manager/'
+  # Large runtime SQLite databases and their WAL/SHM sidecars.
+  'logs_2.sqlite'
+  'logs_2.sqlite-wal'
+  'logs_2.sqlite-shm'
+  'state_5.sqlite'
+  'state_5.sqlite-wal'
+  'state_5.sqlite-shm'
+  'memories_1.sqlite'
+  'memories_1.sqlite-wal'
+  'memories_1.sqlite-shm'
+  'goals_1.sqlite'
+  'goals_1.sqlite-wal'
+  'goals_1.sqlite-shm'
+  # Runtime history/state files.
+  'history.jsonl'
+  'stats-cache.json'
+  # Runtime-only directories (conversation history, caches, backups).
+  'projects/'
+  'file-history/'
+  'paste-cache/'
+  'cache/'
+  'backups/'
+  'tasks/'
+  'debug/'
+  'channels/'
+  'session-env/'
+)
+
 overlay_tree() {
   local src="$1"
   local dst="$2"
@@ -109,12 +165,20 @@ overlay_tree() {
   [[ -d "$src" ]] || return 0
   mkdir -p "$dst"
   chmod -R u+w "$dst" 2>/dev/null || true
-  # Copy everything except sessions directories (large, not needed in clean HOME).
-  # rsync is used instead of ditto for exclusion support.
+  # Copy only config into the clean HOME. rsync is used for exclusion support;
+  # bulky runtime state, plugin/app caches, and SQLite DBs are skipped so the
+  # clean HOME stays small and does not exhaust disk space.
   if command -v rsync >/dev/null 2>&1; then
-    rsync -a --exclude='sessions/' --exclude='.DS_Store' "$src/" "$dst/"
+    local rsync_args=(-a)
+    local ex
+    for ex in "${RUNTIME_EXCLUDES[@]}"; do
+      rsync_args+=(--exclude="$ex")
+    done
+    rsync "${rsync_args[@]}" "$src/" "$dst/"
   else
-    # Fallback: ditto copies everything including sessions, but works without rsync.
+    # Fallback: ditto cannot exclude, so it copies everything including the
+    # bulky runtime state above. Only used when rsync is unavailable.
+    echo "WARN: rsync not found; falling back to ditto, which copies all runtime state. Clean HOME may be large and exhaust disk space." >&2
     ditto "$src" "$dst"
   fi
 }
