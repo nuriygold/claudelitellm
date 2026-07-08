@@ -136,6 +136,7 @@ When editing this repo, preserve these invariants unless the task explicitly cha
 - No em dashes in docs or messages for this repo.
 - Prefer internet-backed verification over stale local assumptions when validating changes.
 - For Codex-created testing or deployment branches in this repo, use the `joy/` prefix. This prefix preference is for Codex work only, not for other CLIs or tools.
+- Commits must not include the `Co-Authored-By: Claude <noreply@anthropic.com>` trailer. The launcher sets `includeCoAuthoredBy: false` in the merged settings to enforce this.
 
 ## Verification
 
