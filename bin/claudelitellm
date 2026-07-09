@@ -782,6 +782,28 @@ else
   RESOLVED_MCP_CONFIG_PATH=""
 fi
 
+# Plugin-provided MCP servers (e.g. the official github plugin at
+# api.githubcopilot.com) authenticate via ${GITHUB_PERSONAL_ACCESS_TOKEN}
+# header expansion. env -i strips that variable, so the header goes out
+# empty and the server rejects the connection with HTTP 400. Reuse the
+# token already stored in the resolved MCP config unless the shell
+# exported one explicitly.
+GITHUB_PAT="${GITHUB_PERSONAL_ACCESS_TOKEN:-}"
+if [[ -z "$GITHUB_PAT" && -n "$RESOLVED_MCP_CONFIG_PATH" && -f "$RESOLVED_MCP_CONFIG_PATH" ]]; then
+  GITHUB_PAT="$(python3 - "$RESOLVED_MCP_CONFIG_PATH" <<'PY' 2>/dev/null || true
+import json
+import sys
+
+try:
+    config = json.load(open(sys.argv[1]))
+    token = config["mcpServers"]["github"]["env"]["GITHUB_PERSONAL_ACCESS_TOKEN"]
+except (OSError, ValueError, KeyError, TypeError):
+    token = ""
+print(token if isinstance(token, str) else "")
+PY
+)"
+fi
+
 echo
 echo "Merged config sources:"
 for source_dir in "${CONFIG_SOURCE_DIRS[@]}"; do
@@ -841,6 +863,7 @@ env -i \
   CODEX_HOME="$MERGED_CODEX_CONFIG_DIR" \
   GH_CONFIG_DIR="${GH_CONFIG_DIR:-$HOME/.config/gh}" \
   CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
+  GITHUB_PERSONAL_ACCESS_TOKEN="$GITHUB_PAT" \
   ANTHROPIC_BASE_URL="$FILTER_URL" \
   ANTHROPIC_AUTH_TOKEN="$LITELLM_KEY" \
   ANTHROPIC_MODEL="$MODEL" \
