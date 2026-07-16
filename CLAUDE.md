@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `claudelitellm` is a thin local launcher that runs Claude Code against an existing LiteLLM proxy through a temporary local filtering proxy.
 
-The key compatibility behavior is that the launcher inserts a local HTTP proxy that strips `output_config` from JSON requests before forwarding them to LiteLLM. Claude is then started in a clean temporary `HOME` so it does not reuse an existing Claude login session.
+The key compatibility behavior is that the launcher inserts a local HTTP proxy that strips `output_config` from JSON requests and rewrites blocked provider model IDs, such as `claude-*`, to the configured LiteLLM model before forwarding them to LiteLLM. Claude is then started in a clean temporary `HOME` so it does not reuse an existing Claude login session.
 
 ## Common commands
 
@@ -19,7 +19,7 @@ bin/claudelitellm
 ### Run with a non-default LiteLLM endpoint or model
 
 ```bash
-REAL_LITELLM_URL=http://127.0.0.1:4000 ANTHROPIC_MODEL=claude-fable-5 bin/claudelitellm
+REAL_LITELLM_URL=http://127.0.0.1:4000 ANTHROPIC_MODEL=gpt-5.5 bin/claudelitellm
 ```
 
 ### Run with a specific Claude or MCP config
@@ -82,8 +82,8 @@ The README documents these local dependencies:
 2. If LiteLLM responds with `401` or `403`, the launcher prompts for `LITELLM_KEY` and retries.
 3. The launcher kills any existing listener on `FILTER_PORT`.
 4. It writes a temporary Python HTTP proxy script to `FILTER_SCRIPT_PATH`.
-5. That proxy forwards requests to `REAL_LITELLM_URL`, recursively removing `output_config` from JSON request bodies.
-6. The launcher verifies the filter proxy by calling its `/v1/models` endpoint.
+5. That proxy forwards requests to `REAL_LITELLM_URL`, recursively removing `output_config` from JSON request bodies and rewriting blocked provider model IDs to the configured LiteLLM model.
+6. The launcher verifies the filter proxy by calling its `/v1/models` endpoint and checking the wrapper compatibility header.
 7. It creates a temporary clean home directory with `mktemp -d`.
 8. It materializes a minimal agents directory (AGENT.md + IDENTITY.md only), replacing any symlink into `~/.openclaw/agents` so the multi-GB nested codex-home/sessions/plugin-skill trees are not dragged into the clean HOME, then trims agent descriptions to stay under the 15k-token context limit.
 9. It launches `claude` under `env -i`, pointing `ANTHROPIC_BASE_URL` at the filter proxy and passing through the selected model, `--effort` (so the printed reasoning level actually applies), and MCP config.
@@ -94,10 +94,10 @@ Config overlay uses `rsync` (with `ditto` fallback) and excludes `sessions/` and
 
 - The launcher is the product. There is no separate library or multi-module app structure here.
 - The embedded Python proxy is generated inside the shell script, so changes to proxy behavior are made in `bin/claudelitellm`, not in a separate Python file.
-- Proxy behavior is intentionally narrow: it strips `output_config`, rejects unexpected `Host` headers, and otherwise forwards headers/body with minimal changes.
+- Proxy behavior is intentionally narrow: it strips `output_config`, rewrites blocked provider model IDs to the configured LiteLLM model, rejects unexpected `Host` headers, and otherwise forwards headers/body with minimal changes.
 - The proxy binds to `127.0.0.1` only by default, exposes `FILTER_BIND_HOST` and `FILTER_ALLOWED_HOSTS` for explicit overrides, and uses `socketserver.ThreadingTCPServer` with address reuse enabled plus a short launcher-side port-release wait so immediate restarts do not fail on macOS bind timing.
 - Before starting a new proxy, the launcher checks whether `FILTER_PORT` is already owned by a healthy compatible filter and reuses it instead of stealing the port from an external service-managed instance.
-- Upstream transport now uses a shared `httpx` client with pooling and bounded retries for transient idempotent-request failures; stability tuning lives in the `FILTER_UPSTREAM_*` and `FILTER_MAX_*` environment variables.
+- Upstream transport uses Python standard-library HTTP forwarding so the wrapper does not require an extra Python package for proxy transport.
 - Claude runs with `env -i`, so environment propagation is explicit. If a tool stops working, check whether the required variable is being passed through in the `env -i` block.
 - The merged clean-home `settings.json` has its `hooks` key stripped before launch so home or parent `SessionStart` automations do not run inside the isolated wrapper session.
 - The launcher only forwards explicit script arguments into the nested Claude invocation, which prevents inherited outer-session `--print` mode from breaking the inner interactive launch.
@@ -122,7 +122,7 @@ Environment variables supported by the launcher:
 ## Files that matter
 
 - `bin/claudelitellm`: the main launcher, proxy generator, environment isolation logic, and Claude invocation.
-- `config/litellm.config.yaml.example`: example LiteLLM model mapping for `claude-fable-5` via Azure and use of `LITELLM_MASTER_KEY`.
+- `config/litellm.config.yaml.example`: example LiteLLM config that defaults to `gpt-5.5` via Azure and uses `LITELLM_MASTER_KEY`.
 - `README.md`: usage expectations and required local dependencies.
 - `.claude/settings.local.json`: local Claude Code permissions checked into this repo for common shell and GitHub auth commands.
 - `bin/trim-agent-descriptions`: enforces the 15k-token agent description limit by removing duplicate IDENTITY files, stub agents, and bootstrap files from `~/.claude/agents/`.
@@ -134,6 +134,7 @@ When editing this repo, preserve these invariants unless the task explicitly cha
 
 - Claude must continue to run against the local filter proxy, not directly against the upstream LiteLLM URL.
 - The filter proxy must continue stripping `output_config` from JSON request bodies.
+- The filter proxy must continue rewriting blocked provider model IDs, such as `claude-*`, to the configured LiteLLM model so subagents cannot bypass the wrapper model.
 - Claude should continue launching in a temporary clean `HOME`.
 - The launcher should fail fast when LiteLLM or the filter proxy is unreachable.
 - No em dashes in docs or messages for this repo.
