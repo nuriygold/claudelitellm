@@ -280,5 +280,5 @@ general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
 
 litellm_settings:
-  default_model_name: claude-fable-5
+  default_model_name: gpt-5.5
   drop_params: true

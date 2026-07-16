@@ -21,10 +21,11 @@ At runtime `bin/claudelitellm` does all of the following:
 2. prompts for `LITELLM_KEY` when LiteLLM requires auth
 3. starts a temporary local proxy on `127.0.0.1:<FILTER_PORT>`
 4. strips `output_config` from JSON requests before forwarding them upstream
-5. creates a clean temporary `HOME`
-6. overlays `.claude` and `.codex` config into that temporary home
-7. launches `claude` with `ANTHROPIC_BASE_URL` pointed at the local filter proxy
-8. passes `--mcp-config` with the resolved `claudelitellmmcps.json` path when available
+5. rewrites blocked provider model IDs, such as `claude-*`, to the configured LiteLLM model before forwarding them upstream
+6. creates a clean temporary `HOME`
+7. overlays `.claude` and `.codex` config into that temporary home
+8. launches `claude` with `ANTHROPIC_BASE_URL` pointed at the local filter proxy
+9. passes `--mcp-config` with the resolved `claudelitellmmcps.json` path when available
 
 This means the launcher itself is the product. There is no separate application server or library layer that owns this behavior.
 
@@ -53,7 +54,6 @@ Practically, treat this environment as a wrapped Claude runtime with special con
 
 - `claude`
 - `python3`
-- Python package `httpx` for the local filter proxy transport (`python3 -m pip install httpx`)
 - `curl`
 - `lsof`
 - `litellm` if you want the launcher to auto-start the repo-local LiteLLM on `http://127.0.0.1:4000`
@@ -167,7 +167,7 @@ export SUPABASE_ACCESS_TOKEN="..."
 export VERCEL_API_KEY="..."
 
 REAL_LITELLM_URL=http://127.0.0.1:4000 \
-ANTHROPIC_MODEL=claude-fable-5 \
+ANTHROPIC_MODEL=gpt-5.5 \
 MCP_CONFIG_PATH="$HOME/.claude/claudelitellmmcps.json" \
 bin/claudelitellm
 ```
@@ -175,14 +175,14 @@ bin/claudelitellm
 ## Environment variables
 ## LiteLLM config example
 
-The checked-in example config keeps the default `claude-fable-5` model mapping for Azure:
+The checked-in example config defaults to `gpt-5.5` for Azure:
 
 ```yaml
 model_list:
-  - model_name: claude-fable-5
+  - model_name: gpt-5.5
     litellm_params:
-      model: openai/claude-fable-5
-      api_base: https://blessed-abundance-resource.services.ai.azure.com/anthropic/v1/messages
+      model: openai/gpt-5.5
+      api_base: https://blessed-abundance-resource.services.ai.azure.com/openai/v1
       api_key: os.environ/AZURE_API_KEY
       api_version: os.environ/AZURE_API_VERSION
       timeout: 600
@@ -223,7 +223,7 @@ general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
 
 litellm_settings:
-  default_model_name: glm-5.2:cloud
+  default_model_name: gpt-5.5
   drop_params: true
 ```
 
@@ -237,14 +237,14 @@ Copy `config/litellm.config.yaml.example` to `config/litellm.config.yaml` before
 
 ## LiteLLM config example
 
-The checked-in example config keeps the default `gpt-5.4` model mapping for Azure:
+The checked-in example config defaults to `gpt-5.5` for Azure:
 
 ```yaml
 model_list:
-  - model_name: claude-fable-5
+  - model_name: gpt-5.5
     litellm_params:
-      model: openai/claude-fable-5
-      api_base: https://blessed-abundance-resource.services.ai.azure.com/anthropic/v1/messages
+      model: openai/gpt-5.5
+      api_base: https://blessed-abundance-resource.services.ai.azure.com/openai/v1
       api_key: os.environ/AZURE_API_KEY
       api_version: os.environ/AZURE_API_VERSION
       timeout: 600
@@ -285,7 +285,7 @@ general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
 
 litellm_settings:
-  default_model_name: glm-5.2:cloud
+  default_model_name: gpt-5.5
   drop_params: true
 ```
 
@@ -339,10 +339,11 @@ Default behavior:
 - `GH_CONFIG_DIR` is forwarded so GitHub auth can still work inside the clean-home session.
 - Temporary artifacts are written under `/tmp` or `$TMPDIR` unless overridden, and the temp clean home is removed with Python `shutil.rmtree` to avoid noisy macOS `rm` failures on transient npm cache trees.
 - The launcher now waits briefly for `FILTER_PORT` to be released before rebinding, and the embedded TCP server enables address reuse so immediate restarts do not trip over macOS socket teardown timing.
-- If an already-running filter proxy is listening on `FILTER_PORT` and answers like the expected local filter, the launcher reuses it instead of trying to replace it.
+- If an already-running filter proxy is listening on `FILTER_PORT` and advertises the current compatibility header, the launcher reuses it instead of trying to replace it.
+- If an older filter proxy without model-rewrite compatibility is listening on `FILTER_PORT`, the launcher stops that known filter process and starts a compatible one.
 - The filter proxy binds to `127.0.0.1` only by default via `FILTER_BIND_HOST`.
 - The proxy now rejects unexpected `Host` headers; override the allowlist with `FILTER_ALLOWED_HOSTS` only when you intentionally need more than `127.0.0.1`, `localhost`, or the current hostname.
-- Upstream forwarding now uses a reusable `httpx` client with connection pooling plus bounded retries for transient GET/HEAD/OPTIONS failures; tune it with the `FILTER_UPSTREAM_*` and `FILTER_MAX_*` variables when needed.
+- The embedded filter uses Python standard-library HTTP forwarding, so no extra Python package is required for proxy transport.
 - Changes to proxy behavior must be made in `bin/claudelitellm` because the proxy script is generated there at runtime.
 - If LiteLLM auth is missing, the launcher stops before the interactive Claude session starts.
 - If MCP servers appear to be missing inside a launched session, check `MCP_CONFIG_PATH` resolution before checking standard Claude local MCP registration.

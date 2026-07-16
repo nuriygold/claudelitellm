@@ -47,7 +47,7 @@ export explicitly in your shell still wins. Supported variables:
 | Variable                          | Purpose                                            |
 | --------------------------------- | -------------------------------------------------- |
 | `CLAUDELITELLM_DEVICE_LABEL`      | Friendly label shown at launch.                    |
-| `CLAUDELITELLM_MODEL`             | Default model (e.g. `claude-fable-5`).             |
+| `CLAUDELITELLM_MODEL`             | Default model (e.g. `gpt-5.5`).                    |
 | `CLAUDELITELLM_SMALL_FAST_MODEL`  | Default small/fast model (defaults to the model).  |
 | `CLAUDELITELLM_REASONING_EFFORT`  | Default reasoning effort (`low`/`medium`/`high`).  |
 | `CLAUDELITELLM_AUTOCOMPACT`       | `true`/`false` for `autoCompactEnabled`.           |
