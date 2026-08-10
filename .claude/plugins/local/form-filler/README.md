@@ -22,14 +22,14 @@ at the lines a human must own: final submit, legal attestations, and dishonest/i
 
 ## Profile store
 
-`/Users/claw/openclaw/workspace/form-profile.json` — the durable, growing record of the user's
+`/Users/aaliyathewarrior/openclaw/workspace/form-profile.json` — the durable, growing record of the user's
 reusable form data. Canonical snake_case keys, label→key aliasing, confidence + provenance per field.
 
 ## Install (as a plugin)
 
 ```
-/plugin marketplace add /Users/claw/.claude/plugins/local
+/plugin marketplace add /Users/aaliyathewarrior/.claude/plugins/local
 /plugin install form-filler@local-fleet
 ```
 
-The skill also works standalone from `/Users/claw/.claude/skills/form-filler/` after a skills reload.
+The skill also works standalone from `/Users/aaliyathewarrior/.claude/skills/form-filler/` after a skills reload.

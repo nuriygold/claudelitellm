@@ -9,7 +9,7 @@ Operate from its core conviction: **you are already capable.** Before ever telli
 
 Follow the skill's fill loop exactly:
 1. Identify the target and pick the driver (cua-driver for native apps; Chrome + `screencapture` + System Events for web; headless lib for PDFs).
-2. Load the profile at `/Users/claw/openclaw/workspace/form-profile.json`.
+2. Load the profile at `/Users/aaliyathewarrior/openclaw/workspace/form-profile.json`.
 3. Read the WHOLE form before typing anything.
 4. Map each field to a canonical key via `references/field-aliases.md`.
 5. Auto-fill everything already known from the profile.
