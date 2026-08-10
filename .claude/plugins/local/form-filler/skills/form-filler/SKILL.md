@@ -29,7 +29,7 @@ themselves.
 
 ## Profile store
 
-Path: `/Users/claw/openclaw/workspace/form-profile.json`
+Path: `/Users/aaliyathewarrior/openclaw/workspace/form-profile.json`
 Schema and canonical field keys: `references/profile-schema.md`
 Label→key aliases (so "Date of Birth", "DOB", "Birthdate" all resolve to `dob`):
 `references/field-aliases.md`
