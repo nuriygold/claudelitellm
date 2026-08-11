@@ -115,19 +115,20 @@ collect_parent_config_dirs() {
   done
 }
 
-# Runtime state, caches, and bulky plugin/app bundles that must never be copied
-# into the clean HOME. The clean HOME only needs Claude/Codex *config*
-# (settings, agents, skills, rules, memories, MCP config, config.toml, auth).
-# Copying the runtime state below previously pulled multi-GB plugin caches,
-# installed .app bundles, and a 1GB logs database into the temp HOME and
-# exhausted disk space ("No space left on device"). rsync excludes are
-# path-relative, so each pattern is skipped anywhere in the overlay tree.
+# Runtime state and bulky app bundles that must never be copied into the clean
+# HOME. The clean HOME needs Claude/Codex *config* plus lightweight plugin
+# install state (settings, agents, skills, rules, memories, MCP config,
+# config.toml, auth, plugin marketplace manifests, and installed plugin cache).
+# Copying the runtime state below previously pulled installed .app bundles and a
+# 1GB logs database into the temp HOME and exhausted disk space ("No space left
+# on device"). rsync excludes are path-relative, so each pattern is skipped
+# anywhere in the overlay tree.
 RUNTIME_EXCLUDES=(
   'sessions/'
   '.DS_Store'
-  # Plugin runtime and installed app bundles (hundreds of MB to GB).
-  'plugins/cache/'
-  'plugins/marketplaces/'
+  # Plugin runtime app bundles and staging (hundreds of MB to GB). Keep
+  # marketplaces/cache/install metadata so /reload-plugins can discover enabled
+  # plugins inside the clean HOME.
   'plugins/data/'
   'plugins/.plugin-appserver/'
   'plugins/.marketplace-plugin-source-staging/'
@@ -800,6 +801,40 @@ settings["autoCompactEnabled"] = autocompact
 settings_path.parent.mkdir(parents=True, exist_ok=True)
 settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 PY
+
+# Keep plugin marketplace records pointed at the durable real-home install
+# location. Plugin metadata is copied into the clean HOME so plugin discovery
+# works; the marketplace location itself should remain stable across launches.
+if [[ -f "$MERGED_CLAUDE_CONFIG_DIR/plugins/known_marketplaces.json" ]]; then
+  python3 - <<'PY' "$MERGED_CLAUDE_CONFIG_DIR/plugins/known_marketplaces.json" "$HOME_CLAUDE_CONFIG_DIR/plugins/marketplaces"
+import json
+import pathlib
+import sys
+
+known_path = pathlib.Path(sys.argv[1])
+real_marketplaces = pathlib.Path(sys.argv[2])
+try:
+    known = json.loads(known_path.read_text())
+except (OSError, ValueError):
+    known = {}
+
+changed = False
+if isinstance(known, dict):
+    for name, entry in known.items():
+        if not isinstance(entry, dict):
+            continue
+        install = entry.get("installLocation")
+        if not isinstance(install, str):
+            continue
+        real_install = real_marketplaces / pathlib.Path(install).name
+        if real_install.exists() and install != str(real_install):
+            entry["installLocation"] = str(real_install)
+            changed = True
+
+if changed:
+    known_path.write_text(json.dumps(known, indent=2) + "\n")
+PY
+fi
 
 # Trim agent descriptions to stay under the 15k-token context limit.
 # Removes duplicate IDENTITY files, stub agents, and bootstrap files.
