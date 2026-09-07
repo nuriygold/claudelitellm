@@ -118,6 +118,7 @@ Environment variables supported by the launcher:
 - `FILTER_LOG_PATH`
 - `LITELLM_MODELS_OUTPUT`
 - `FILTER_MODELS_OUTPUT`
+- `FILTER_MAX_TOOLS`
 
 ## Files that matter
 

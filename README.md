@@ -317,6 +317,7 @@ Supported variables:
 - `FILTER_UPSTREAM_RETRY_BACKOFF`
 - `FILTER_MAX_CONNECTIONS`
 - `FILTER_MAX_KEEPALIVE_CONNECTIONS`
+- `FILTER_MAX_TOOLS` (default `128`; the proxy truncates the request `tools` array to this length so Azure's 128-tool limit cannot produce a 400)
 
 For launcher auth, export the client key as `LITELLM_KEY` before launch if you are connecting to an already-running LiteLLM that requires auth and you do not want the launcher to prompt.
 
