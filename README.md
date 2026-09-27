@@ -114,34 +114,9 @@ For local operator use, the usual real file is:
 
 The committed repo example is the safe template. Personal tokens should live in your home MCP config or in environment variables, not in the tracked repo-local file.
 
-## Telegram wiring in this build
+## MCP wiring
 
-Telegram for this environment should be wired into the `claudelitellmmcps.json` file used by the launcher.
-
-Current live path:
-
-- MCP config file: `~/.claude/claudelitellmmcps.json`
-- Telegram bridge server: `/Users/claw/openclaw/workspace/plugins/telegram/server.ts`
-- Telegram state: `~/.claude/channels/telegram/.env`
-- Telegram access control: `~/.claude/channels/telegram/access.json`
-
-Example MCP entry:
-
-```json
-{
-  "telegram": {
-    "command": "bun",
-    "args": [
-      "/Users/claw/openclaw/workspace/plugins/telegram/server.ts"
-    ]
-  }
-}
-```
-
-The Telegram bridge also has local runtime dependencies in its own directory, so if the bridge fails to start, check the plugin directory first:
-
-- `/Users/claw/openclaw/workspace/plugins/telegram/package.json`
-- `/Users/claw/openclaw/workspace/plugins/telegram/node_modules`
+The repository ships only safe examples. Copy `.claude/claudelitellmmcps.example.json` to your user-level config and replace its placeholders with your own providers. Keep tokens in environment variables or a credential manager, and use repository-relative paths or `$HOME` rather than machine-specific paths.
 
 ## Usage
 
@@ -162,9 +137,9 @@ If `REAL_LITELLM_URL` points at the default local endpoint and nothing is listen
 - otherwise it seeds `~/.claude/claudelitellmmcps.json` from the checked-in example
 
 ```bash
-export GITHUB_PERSONAL_ACCESS_TOKEN="..."
-export SUPABASE_ACCESS_TOKEN="..."
-export VERCEL_API_KEY="..."
+export GITHUB_PERSONAL_ACCESS_TOKEN="<your-token>"
+export SUPABASE_ACCESS_TOKEN="<your-token>"
+export VERCEL_API_KEY="<your-token>"
 
 REAL_LITELLM_URL=http://127.0.0.1:4000 \
 ANTHROPIC_MODEL=gpt-5.5 \
@@ -393,11 +368,11 @@ If a launched session reports `Agent descriptions are over the 15.0k-token limit
 
 ### Root cause
 
-Claude Code resolves the "user" config source from the **real OS home** (`getpwuid(getuid())` -> `/Users/claw`), not from the `HOME` env var. The launcher starts Claude with `env -i HOME="$CLEAN_HOME"` and `CLAUDE_CONFIG_DIR="$MERGED"` so the nested session does not reuse an existing Claude login. But Claude Code still reads `/Users/claw/.claude/agents` (the real home) **in addition to** `$CLAUDE_CONFIG_DIR/agents`, regardless of `HOME`.
+Claude Code resolves the "user" config source from the operating system's real home rather than only from the `HOME` env var. The launcher starts Claude with `env -i HOME="$CLEAN_HOME"` and `CLAUDE_CONFIG_DIR="$MERGED"` so the nested session does not reuse an existing Claude login. Review your local Claude installation's agent discovery behavior before using this wrapper with sensitive workspaces.
 
 When `~/.claude/agents` is a symlink into `~/.openclaw/agents`, Claude Code follows it and loads the entire openclaw agents tree: a 2.7 GB directory containing a full nested `codex-home/`, `sessions/`, `harness-auth/`, and plugin skill caches per agent (~11,000 markdown files, 66 MB of `.md`). That is the 51.3k tokens. The launcher's clean-home overlay and `materialize_agents_dir` step only affect `$CLAUDE_CONFIG_DIR/agents`, which Claude Code ignores for the user source, so they cannot reduce this number. The same root cause is why the `SessionStart` hook (claude-mem) still ran despite the launcher stripping `hooks` from the merged `settings.json`: Claude Code reads the real `~/.claude/settings.json`.
 
-Confirmed empirically with a debug run: under `env -i HOME=<clean-home> CLAUDE_CONFIG_DIR=<merged>`, Claude Code's debug log still referenced `/Users/claw/.claude/agents` (the openclaw symlink) plus the merged temp path. `HOME` does not redirect the user config source.
+Under `env -i HOME=<clean-home> CLAUDE_CONFIG_DIR=<merged>`, Claude Code may still discover agents from the operating system's user configuration source. `HOME` does not necessarily redirect every user-level config lookup.
 
 ### Why the launcher-only fix cannot work
 
@@ -405,15 +380,15 @@ Because Claude Code reads the real home via `getpwuid`, no amount of clean-home 
 
 ### The actual fix (detach at the real symlink)
 
-`~/.openclaw/agents` is openclaw's runtime. openclaw references each agent directly via `agentDir` in `~/.openclaw/openclaw.json` (e.g. `agentDir: /Users/claw/.openclaw/agents/ruby/agent`), so openclaw keeps full access to `~/.openclaw/agents` and never needs `~/.claude/agents`. The `~/.claude/agents` symlink only exists to expose openclaw agents as Claude Code subagents. Replacing it with a minimal standalone copy keeps the personas available to Claude Code while detaching the 2.7 GB runtime:
+External agent runtimes are intentionally outside this repository. If you use one, configure it with a user-level path and review the files copied into the clean overlay before launching.
 
 ```bash
-# Backup the symlink target (it is just: /Users/claw/.openclaw/agents)
+# Backup the symlink target before changing any user-level agent directory.
 readlink ~/.claude/agents > /tmp/agents-symlink-backup.txt
 
 # Build a minimal real agents dir: AGENT.md + IDENTITY.md per agent only
 tmp=$(mktemp -d /tmp/agents-min.XXXXXX)
-for d in /Users/claw/.openclaw/agents/*/; do
+for d in "$HOME"/.openclaw/agents/*/; do
   n=$(basename "$d"); mkdir -p "$tmp/$n/agent"
   [ -f "$d/AGENT.md" ] && cp "$d/AGENT.md" "$tmp/$n/AGENT.md"
   idf=$(find -L "$d/agent" -maxdepth 1 \( -iname "IDENTITY.md" -o -iname "identity.md" \) 2>/dev/null | head -1)

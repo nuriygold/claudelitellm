@@ -1,6 +1,6 @@
 # Profile store schema
 
-File: `/Users/aaliyathewarrior/openclaw/workspace/form-profile.json`
+File: the user-provided `FORM_PROFILE_PATH`.
 
 The profile is the durable memory of the *user's* reusable form data. It grows every time a
 form teaches a new field.

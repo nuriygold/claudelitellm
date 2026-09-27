@@ -25,9 +25,9 @@ REAL_LITELLM_URL=http://127.0.0.1:4000 ANTHROPIC_MODEL=gpt-5.5 bin/claudelitellm
 ### Run with a specific Claude or MCP config
 
 ```bash
-export GITHUB_PERSONAL_ACCESS_TOKEN="..."
-export SUPABASE_ACCESS_TOKEN="..."
-export VERCEL_API_KEY="..."
+export GITHUB_PERSONAL_ACCESS_TOKEN="<your-token>"
+export SUPABASE_ACCESS_TOKEN="<your-token>"
+export VERCEL_API_KEY="<your-token>"
 
 CLAUDE_CONFIG_DIR="$HOME/.claude" MCP_CONFIG_PATH="$HOME/.claude/claudelitellmmcps.json" bin/claudelitellm
 ```

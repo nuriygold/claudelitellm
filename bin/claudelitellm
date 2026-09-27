@@ -474,7 +474,7 @@ if [[ "$HTTP_CODE" == "401" || "$HTTP_CODE" == "403" ]]; then
     -H "Authorization: Bearer $LITELLM_KEY" \
     "$REAL_LITELLM_URL/v1/models" || true)"
 else
-  LITELLM_KEY="${LITELLM_KEY:-${LITELLM_API_KEY:-sk-litellm-local}}"
+  LITELLM_KEY="${LITELLM_KEY:-${LITELLM_API_KEY:-local-dev-key}}"
 fi
 
 if [[ "$HTTP_CODE" != "200" ]]; then
